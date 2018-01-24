@@ -1,7 +1,9 @@
 from Tkinter import *
 import Tkinter as tk
 import Tkconstants, tkFileDialog
-import copy
+import Grid
+from os import listdir
+from os.path import isfile, join
 
 
 class GridWindow:
@@ -11,10 +13,20 @@ class GridWindow:
         self.myContainer1 = tk.Frame(parent)
         self.myContainer1.pack()
 
+        self.myCanvas = tk.Canvas(self.myContainer1)
+        self.myCanvas.configure(borderwidth=0, highlightthickness=0,width=0,
+                                height=0)
+
         self.cellwidth = 0
         self.cellheight = 0
         self.rect = {}
         self.text = {}
+        self.fails = 0
+
+    def delete(self):
+        self.myCanvas.delete('all')
+        self.myCanvas.configure(borderwidth=0, highlightthickness=0,width=0,
+                                height=0)
 
     def draw_grid(self, rows, columns):
         bigger = max(columns, rows)
@@ -35,202 +47,109 @@ class GridWindow:
                 y2 = y1 + self.cellheight
                 self.rect[row, column] = self.myCanvas.create_rectangle(x1, y1, x2, y2, fill="white")
 
-    def draw_walls(self, coord):
-        for column,row in coord:
-            x1 = column * self.cellwidth
-            y1 = row * self.cellheight
+    def draw_walls(self, walls):
+        for wall in walls:
+            x1 = wall.x * self.cellwidth
+            y1 = wall.y * self.cellheight
             x2 = x1 + self.cellwidth
             y2 = y1 + self.cellheight
-            self.rect[row, column] = self.myCanvas.create_rectangle(x1, y1, x2, y2, fill="blue")
+            self.rect[wall.x, wall.y] = self.myCanvas.create_rectangle(x1, y1, x2, y2, fill="blue")
 
-    def draw_wires(self, wires):
+    def draw_routes(self, routes):
         colors = ["red", "yellow", "gray", "orange", "cyan", "pink", "green", "purple"]
-        for num,[source,sinks] in enumerate(wires):
-            x1 = source[0] * self.cellwidth
-            y1 = source[1] * self.cellheight
+        for num,[source,sinks] in enumerate(routes):
+            x1 = source.x * self.cellwidth
+            y1 = source.y * self.cellheight
             x2 = x1 + self.cellwidth
             y2 = y1 + self.cellheight
-            self.rect[source[0], source[1]] = self.myCanvas.create_rectangle(x1, y1, x2, y2, fill=colors[num])
-            self.text[source[0], source[1]] = self.myCanvas.create_text((x1+x2)/2, (y1+y2)/2, text=num+1)
+            self.rect[source.x, source.y] = self.myCanvas.create_rectangle(x1, y1, x2, y2, fill=colors[num])
+            self.text[source.x, source.y] = self.myCanvas.create_text((x1+x2)/2, (y1+y2)/2, text=num+1)
             for sink in sinks:
-                x1 = sink[0] * self.cellwidth
-                y1 = sink[1] * self.cellheight
+                x1 = sink.x * self.cellwidth
+                y1 = sink.y * self.cellheight
                 x2 = x1 + self.cellwidth
                 y2 = y1 + self.cellheight
-                self.rect[sink[0], sink[1]] = self.myCanvas.create_rectangle(x1, y1, x2, y2, fill=colors[num])
-                self.text[sink[0], sink[1]] = self.myCanvas.create_text((x1+x2)/2, (y1+y2)/2, text=num+1)
+                self.rect[sink.x, sink.y] = self.myCanvas.create_rectangle(x1, y1, x2, y2, fill=colors[num])
+                self.text[sink.x, sink.y] = self.myCanvas.create_text((x1+x2)/2, (y1+y2)/2, text=num+1)
 
     def draw_sols(self, sols):
-        for (x,y) in sols:
-            x1 = x * self.cellwidth
-            y1 = y * self.cellheight
-            x2 = x1 + self.cellwidth
-            y2 = y1 + self.cellheight
-            self.rect[x, y] = self.myCanvas.create_rectangle(x1, y1, x2, y2, fill="black")
+        for num,sol in enumerate([sol for sol in sols if sol is not False]):
+            for pt in sol:
+                x1 = pt.x * self.cellwidth + self.cellwidth/4
+                y1 = pt.y * self.cellheight + self.cellheight/4
+                x2 = x1 + self.cellwidth/2
+                y2 = y1 + self.cellheight/2
+                self.rect[pt.x, pt.y] = self.myCanvas.create_rectangle(x1, y1, x2, y2, fill='black')
+        print "done " + str(len(sols)) + " routes"
 
 
-def read_infile(filename):
-    f = open(filename, "r")  # opens file with name of filename
+def read_infile():
+    global ggrid
+    myapp.delete()
+    filename = file.get()
+    f = open('./benchmarks/'+filename, "r")  # opens file with name of filename
 
     #find size of grid
     [w,h] = [int(s) for s in f.readline().split()]
 
-    grid = []
-    for _ in range(h):
-        line = []
-        for _ in range(w):
-            line.append(' ')
-        grid.append(line)
-
+    myGrid = Grid.Grid(w,h)
     myapp.draw_grid(w, h)
 
     walls = []
     for _ in range(int(f.readline().split()[0])):
-        #print f.readline().split()
         walls.append([int(s) for s in f.readline().split()])
     for [x,y] in walls:
-        grid[y][x] = '0'
-    myapp.draw_walls(walls)
+        myGrid.updatestatus(Grid.Point(x,y),'wall')
+        myGrid.walls.append(Grid.Point(x,y))
+    myapp.draw_walls(myGrid.walls)
 
     #number of wires to be created
-    wires = []
     for num in range(int(f.readline().split()[0])):
-        new_wire = []
-        sink = []
-        for s in f.readline().split():
-            new_wire.append(int(s))
+        new_wire = f.readline().split()
+        source = Grid.Point(int(new_wire[1]),int(new_wire[2]))
+        myGrid.updatestatus(source,'wall')
 
-        source = (new_wire[1],new_wire[2])
-        grid[new_wire[2]][new_wire[1]] = -1*(num+1)
+        sinks = []
+        for i in range(int(new_wire[0])-1):
+            sinks.append(Grid.Point(int(new_wire[3+2*i]),int(new_wire[4+2*i])))
+            myGrid.updatestatus(Grid.Point(int(new_wire[3+2*i]),int(new_wire[4+2*i])), 'wall')
 
-        for i in range(new_wire[0]-1):
-            sink.append((new_wire[3+2*i],new_wire[4+2*i]))
-            grid[new_wire[4+2*i]][new_wire[3+2*i]] = -1*(num+1)
+        myGrid.addroute(source,sinks)
 
-        wires.append((source,sink))
-
-    myapp.draw_wires(wires)
-    #print wires
+    myapp.draw_routes(myGrid.routes)
 
     f.close()
-    return wires, grid, w, h
+    myGrid.printgrid()
+    ggrid = myGrid
+
 
 def route():
     result = 0
     if var.get() == 'Lee-Moore':
-        result = LeeMoore(wires,grid)
+        ggrid.LeeMoore()
+        myapp.draw_sols(ggrid.sols)
     #if var.get() == 'LineProbe':
     #    result = LineProbe(wires)
 
-def LeeMoore(wires,grid):
-    sols = []
-    for source,sinks in wires:
-        for sink in sinks:
-            gtemp = copy.deepcopy(grid)
-            #TODO: repopulate grid with solutions of previous routes
-            #Dont really need to bother with sols on same node
-            coordList = []
-            coordList.append((source,1))
-            done = False
-            while (coordList != []) & (done != True):
-                coordList,gtemp,done = LMRoute(coordList,sink,gtemp,done)
-            if(done == True):
-                #populate list of coords to draw solution
-                sol = []
-                current = sink
-                val = gtemp[sink[1]][sink[0]]
-                while val > 2:
-                    (x,y) = current
-                    #TODO: this is where I select direction - better to move away from closest object?
-                    #TODO: intelligence here?
-                    if(gtemp[y-1][x] == val-1):
-                        current = (x, y-1)
-                        sol.append(current)
-                        val -= 1
-                    elif (gtemp[y+1][x] == val - 1):
-                        current = (x, y+1)
-                        sol.append(current)
-                        val -= 1
-                    elif (gtemp[y][x+1] == val - 1):
-                        current = (x+1, y)
-                        sol.append(current)
-                        val -= 1
-                    elif (gtemp[y][x-1] == val - 1):
-                        current = (x-1, y)
-                        sol.append(current)
-                        val -= 1
-                myapp.draw_sols(sol)
-                sols.append(sol)
-
-def LMRoute(coordList,sink,gtemp,done):
-    #print coordList[0]
-    ((x,y),count) = coordList[0]
-    count += 1
-    changes = []
-    #above = [x,y-1]
-    if (x == sink[0]) & (y-1 == sink[1]):
-        #found location! write and return
-        done = True
-        gtemp[y-1][x] = count
-        #print x, y-1
-        return coordList, gtemp, done
-    elif y>0:
-        if (gtemp[y-1][x] == ' '):
-            #empty and valid location, append to coordList
-            changes.append([x,y-1])
-            coordList.append(((x,y-1),count))
-    #below = [x,y+1]
-    if (x == sink[0]) & (y+1 == sink[1]):
-        #found location! write and return
-        done = True
-        gtemp[y+1][x] = count
-        #print x, y+1
-        return coordList, gtemp, done
-    elif y+1<h:
-        if (gtemp[y+1][x] == ' '):
-            #empty and valid location, append to coordList
-            changes.append([x,y+1])
-            coordList.append(((x,y+1),count))
-    #right = [x+1,y]
-    if (x+1 == sink[0]) & (y == sink[1]):
-        #found location! write and return
-        done = True
-        gtemp[y][x+1] = count
-        #print x+1, y
-        return coordList, gtemp, done
-    elif x+1<w:
-        if (gtemp[y][x+1] == ' '):
-            #empty and valid location, append to coordList
-            changes.append([x+1,y])
-            coordList.append(((x+1,y),count))
-    #right = [x-1,y]
-    if (x-1 == sink[0]) & (y == sink[1]):
-        #found location! write and return
-        done = True
-        gtemp[y][x-1] = count
-        #print x-1, y
-        return coordList, gtemp, done
-    elif x>0:
-        if (gtemp[y][x-1] == ' '):
-            #empty and valid location, append to coordList
-            changes.append([x-1,y])
-            coordList.append(((x-1,y),count))
-    for [x,y] in changes:
-        gtemp[y][x] = count
-    coordList.pop(0)
-    return coordList, gtemp, done
 
 ## main ##
 root = Tk()
 root.lift()
 root.attributes("-topmost", True)
-root.filename = tkFileDialog.askopenfilename(initialdir="./benchmarks/", title="Select File to Route")
+#root.filename = tkFileDialog.askopenfilename(initialdir="./benchmarks/", title="Select File to Route")
 
 myapp = GridWindow(root)
-wires,grid,w,h = read_infile(root.filename)
+
+file = tk.StringVar(root)
+# initial value
+file.set('Choose File')
+filenames = [f for f in listdir('./benchmarks/') if isfile(join('./benchmarks/', f))]
+drop = tk.OptionMenu(root, file, *filenames)
+drop.pack(side='left', padx=10, pady=10)
+go = tk.Button(root, text="Choose File", command=read_infile)
+go.pack(side='left', padx=20, pady=10)
 
 var = tk.StringVar(root)
-
 # initial value
 var.set('Choose Routing Algorithm')
 choices = ['Lee-Moore', 'Line Probe']
